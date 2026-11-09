@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           cd src-tauri/gen/apple
-          xcodebuild -project HGhub.xcodeproj -scheme HGhub \
+          xcodebuild -project huangguo-client.xcodeproj -scheme huangguo-client \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath ./build \
@@ -59,7 +59,7 @@ jobs:
       - name: Package unsigned .ipa
         run: |
           set -euo pipefail
-          APP="src-tauri/gen/apple/build/Build/Products/Release-iphoneos/HGhub.app"
+          APP="src-tauri/gen/apple/build/Build/Products/Release-iphoneos/huangguo-client.app"
           test -d "$APP"
           rm -rf Payload HGhub-unsigned.ipa
           mkdir -p Payload
