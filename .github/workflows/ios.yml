@@ -1,9 +1,9 @@
 name: iOS unsigned build
-# 注意：必须跑 macos-15（Xcode 16.4），不能用 macos-latest（Xcode 26）。
-# Xcode 26 删掉了 Swift 兼容库 swiftCompatibility56 等，但 Tauri 的 libapp.a
-# 仍会 auto-link 它们，链接直接炸（tauri#15066，尚无官方修复）。
-# macos-15 自带 Xcode 16.4，仍有这些库。本 IPA 是未签名侧载用的，
-# 不走 App Store，所以不受 iOS 26 SDK 提交要求影响。
+# 注意：跑 macos-latest（Xcode 26），不用 macos-15。
+# Xcode 26 删掉了 Swift 兼容库 swiftCompatibility56 等，Tauri 的 libapp.a
+# 仍会 auto-link 它们（tauri#15066）。但把 iOS 部署目标抬到 17.0 后，
+# Xcode 26 就不再 auto-link 这些缺失的 shim，链接能过（Hexidecibel 方案）。
+# macos-15 机器太少，排队 15 分钟会被取消，所以回 macos-latest。
 
 # Push 到 main 即跑；也可在 Actions 页手动跑。
 on:
@@ -20,7 +20,7 @@ on:
 jobs:
   ios:
     name: iOS (unsigned .ipa)
-    runs-on: macos-15
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +50,17 @@ jobs:
       - name: Generate iOS Xcode project
         run: pnpm tauri ios init --ci
 
+      - name: Raise iOS deployment target to 17.0
+        run: |
+          # Xcode 26 不再自带 swiftCompatibility* shim 库；部署目标 17.0 时
+          # 不再 auto-link 它们，链接才能过。先改已生成的 pbxproj，
+          # 下面 tauri ios build 再用 --config 合并一次，双保险。
+          for f in src-tauri/gen/apple/*.xcodeproj/project.pbxproj; do
+            echo "Patching $f"
+            sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 17.0/g' "$f" || sed -i 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*/IPHONEOS_DEPLOYMENT_TARGET = 17.0/g' "$f"
+            grep -m 1 'IPHONEOS_DEPLOYMENT_TARGET' "$f" || true
+          done
+
       - name: Discover Xcode scheme
         id: scheme
         working-directory: src-tauri/gen/apple
@@ -78,7 +89,7 @@ jobs:
           export APPLE_API_KEY="DUMMYKEY01"
           export APPLE_API_ISSUER="00000000-0000-0000-0000-000000000000"
           export APPLE_API_KEY_PATH="/tmp/dummy-authkey.p8"
-          pnpm tauri ios build --export-method debugging
+          pnpm tauri ios build --export-method debugging --config '{"bundle":{"iOS":{"minimumSystemVersion":"17.0"}}}'
 
       - name: Locate built .ipa
         id: ipa
