@@ -1,4 +1,9 @@
 name: iOS unsigned build
+# 注意：必须跑 macos-15（Xcode 16.4），不能用 macos-latest（Xcode 26）。
+# Xcode 26 删掉了 Swift 兼容库 swiftCompatibility56 等，但 Tauri 的 libapp.a
+# 仍会 auto-link 它们，链接直接炸（tauri#15066，尚无官方修复）。
+# macos-15 自带 Xcode 16.4，仍有这些库。本 IPA 是未签名侧载用的，
+# 不走 App Store，所以不受 iOS 26 SDK 提交要求影响。
 
 # Push 到 main 即跑；也可在 Actions 页手动跑。
 on:
@@ -15,7 +20,7 @@ on:
 jobs:
   ios:
     name: iOS (unsigned .ipa)
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
