@@ -55,38 +55,42 @@ jobs:
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
           echo "Found scheme: $SCHEME"
 
-      - name: Build unsigned .app
+      # 根因：直接调 xcodebuild 时，Xcode 里的 "Build Rust Code" 脚本会跑
+      # `tauri ios xcode-script`，它要读 Tauri CLI 起的 options server 地址文件
+      # （{identifier}-server-addr）。只有 `tauri ios build` / `tauri ios dev`
+      # 才会起这个 server，直接 xcodebuild 必然 panic。
+      # 所以改走官方的 `tauri ios build`，让它自己起 server、调 xcodebuild、
+      # 归档并导出 IPA。
+      # 无签名构建：Tauri 只有在检测到 APPLE_API_* 三个环境变量时才跳过签名
+      # （skip_codesign → CODE_SIGNING_ALLOWED=NO）。这里给一组假凭证触发
+      # 这条路，构建本身不联网验证 Apple，导出用 development 方式。
+      - name: Build unsigned iOS app with Tauri CLI
         run: |
           set -euo pipefail
-          cd src-tauri/gen/apple
-          xcodebuild -project huangguo-client.xcodeproj -scheme ${{ steps.scheme.outputs.scheme }} \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath ./build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
-          ls -lh build/Build/Products/Release-iphoneos/
+          # 生成一个格式合法但无用的 EC 私钥，仅作占位，让 Tauri 的
+          # skip_codesign 分支走到；不用于任何真实 Apple 鉴权。
+          openssl ecparam -genkey -name prime256v1 -noout -out /tmp/dummy-authkey.p8
+          export APPLE_API_KEY="DUMMYKEY01"
+          export APPLE_API_ISSUER="00000000-0000-0000-0000-000000000000"
+          export APPLE_API_KEY_PATH="/tmp/dummy-authkey.p8"
+          pnpm tauri ios build --export-method debugging
 
-      - name: Locate built .app
-        id: app
+      - name: Locate built .ipa
+        id: ipa
         run: |
-          APP=$(find src-tauri/gen/apple/build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -n 1)
-          if [ -z "$APP" ]; then echo "no .app built"; exit 1; fi
-          echo "app=$APP" >> "$GITHUB_OUTPUT"
-          echo "Built app: $APP"
-
-      - name: Package unsigned .ipa
-        run: |
-          set -euo pipefail
-          APP="${{ steps.app.outputs.app }}"
-          test -d "$APP"
-          rm -rf Payload HGhub-unsigned.ipa
-          mkdir -p Payload
-          cp -R "$APP" Payload/
-          zip -r -y HGhub-unsigned.ipa Payload
-          ls -lh HGhub-unsigned.ipa
+          IPA=$(find src-tauri/gen/apple -maxdepth 4 -name "*.ipa" | head -n 1)
+          if [ -z "$IPA" ]; then
+            echo "no .ipa found, listing build outputs:"
+            find src-tauri/gen/apple -maxdepth 4 -type d | head -n 40
+            find src-tauri/gen/apple -maxdepth 4 -name "*.app" | head -n 10
+            exit 1
+          fi
+          echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
+          echo "Built ipa: $IPA"
+          ls -lh "$IPA"
 
       - uses: actions/upload-artifact@v4
         with:
           name: HGhub-ios-unsigned
-          path: HGhub-unsigned.ipa
+          path: ${{ steps.ipa.outputs.ipa }}
           if-no-files-found: error
